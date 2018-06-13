@@ -1,14 +1,18 @@
 /******************************************************
 程序：四位电子时钟
-功能：格式为XX.XX，具有计时/调时功能
-说明：P1输出段码，P2低4位选择数码管，P0高3位做键盘
+功能：显示格式为XX.XX，具有计时/调时功能，调时位闪烁
+硬件说明：晶振频率12MHz，四个共阳极七段数码管和74HC373锁存器，
+          三个按键分别实现调时选择、调时位选择、调时位加一，
+		  P1输出段码，P2低4位选择数码管，P0高3位做键盘
+软件说明：T0中断计次实现1s定时和进位，T1中断实现调时闪烁，
+	      INT0中断检测按键，74HC373和七段管实现时钟锁存显示。
 *******************************************************/
 #include <reg52.h>
 #define uchar unsigned char
 
-uchar code table[]=
+uchar code table[]=					 //共阳极七段管编码
 {	0xC0,0xF9,0xA4,0xB0,0x99,0x92,0x82,0xF8,0x80,0x90,0x7f,0xff}; 
-//   0    1    2	3	 4    5    6    7    8    9    .   全灭   共阳极LED编码
+//   0    1    2	3	 4    5    6    7    8    9    .   全灭   
 
 uchar code led_select[4] = { 0x01, 0x02, 0x04, 0x08 };   // 显示位选择
 uchar buffer[5] = {0};    // 显示数据buffer: 秒，十秒，分，十分，暂存
@@ -17,8 +21,8 @@ sbit shift = P0 ^ 6;      // 选择调时位按键
 sbit plus = P0 ^ 7;		  // 当前选择位+1按键
 uchar cnt_mode = 0;		  // Mode按下计次
 uchar pickbit = 0;	      // 调时的位选择
-long int count1 = 0;	  // 一秒定时
-long int count2 = 0;	  // 0.5秒定时
+long int count1 = 0;	  // T0定时器计数
+long int count2 = 0;	  // T1定时器计数
 
 void delay(uchar t);	  // 延时函数
 void second();		      // 定时进位函数
@@ -111,7 +115,7 @@ void key() interrupt 0		        //INT0外部中断
 			while (mode == 0);      // 判断按键是否弹起
 			cnt_mode++;             // Mode按键计数
 
-			if (buffer[pickbit] == table[11])
+			if (buffer[pickbit] == 11)
 			{
 				buffer[pickbit] = buffer[4];
 			}
@@ -120,7 +124,7 @@ void key() interrupt 0		        //INT0外部中断
 			{
 				cnt_mode = 0;
 				TR1 = 0; ET1 = 0; 
-				TR0 = 1; ET0 = 1;   //若原状态为调时，则现在变为计时
+				TR0 = 1; ET0 = 1;   //调时->计时状态切换
 			}
 			else
 			{
@@ -138,9 +142,9 @@ void key() interrupt 0		        //INT0外部中断
 			if (shift == 0);
 			{
 				while (shift == 0);
-				if (buffer[pickbit] == table[11])
+				if (buffer[pickbit] == 11)      //闪烁实现
 				{
-					buffer[pickbit] = buffer[4];//如果原来位灯灭，则现在变量亮
+					buffer[pickbit] = buffer[4];
 				}
 				pickbit++;            // 移到下一位
 				if (pickbit>3)
@@ -155,7 +159,7 @@ void key() interrupt 0		        //INT0外部中断
 			if(plus == 0)
 			{
 				while(plus == 0);
-				if(buffer[pickbit] == table[11])
+				if(buffer[pickbit] == 11)
 				{
 					buffer[pickbit] = buffer[4];
 				}
@@ -181,7 +185,7 @@ void key() interrupt 0		        //INT0外部中断
 }
 
 /*********************** 闪烁函数 ******************************/
-void flsh() interrupt 3	         //T1中断
+void flash() interrupt 3	         // T1中断
 {
 	TR1 = 0; 
 	TH1 = 0xff; 
@@ -189,17 +193,17 @@ void flsh() interrupt 3	         //T1中断
 	TR1 = 1;
 
 	count2++;
-	if (count2 == 3000)
+	if (count2 == 4000)
 	{
 		count2 = 0;
-		if (buffer[pickbit] == table[11])//如果原来灭，则取出原来数据，并点亮
+		if (buffer[pickbit] == 11)  // buffer[pickbit]=11,指向table的0xff,即七段管全灭
 		{
 			buffer[pickbit] = buffer[4];
 		}
-		else                             //如果原来亮，则灭，并把数据暂存起来
+		else                        // 把buffer[pickbit]数据暂存到buffer[4]
 		{
 			buffer[4] = buffer[pickbit];
-			buffer[pickbit] = table[11];
+			buffer[pickbit] = 11;
 		}
 	}
 } 
